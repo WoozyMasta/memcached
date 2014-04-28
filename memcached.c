@@ -74,6 +74,9 @@ static enum try_read_result try_read_udp(conn *c);
 
 static void conn_set_state(conn *c, enum conn_states state);
 
+static void mc_handler(struct ixev_ctx *ctx, unsigned int reason);
+
+
 /* stats */
 static void stats_init(void);
 static void server_stats(ADD_STAT add_stats, conn *c);
@@ -347,10 +350,12 @@ conn *conn_new(const int sfd, enum conn_states init_state,
                 struct event_base *base) {
     conn *c;
 
+#if 0
     assert(sfd >= 0 && sfd < max_fds);
     c = conns[sfd];
 
     if (NULL == c) {
+#endif
         if (!(c = (conn *)calloc(1, sizeof(conn)))) {
             STATS_LOCK();
             stats.malloc_fails++;
@@ -397,8 +402,10 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         STATS_UNLOCK();
 
         c->sfd = sfd;
+#if 0
         conns[sfd] = c;
     }
+#endif
 
     c->transport = transport;
     c->protocol = settings.binding_protocol;
@@ -412,6 +419,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         c->request_addr_size = 0;
     }
 
+#if 0
     if (transport == tcp_transport && init_state == conn_new_cmd) {
         if (getpeername(sfd, (struct sockaddr *) &c->request_addr,
                         &c->request_addr_size)) {
@@ -419,6 +427,8 @@ conn *conn_new(const int sfd, enum conn_states init_state,
             memset(&c->request_addr, 0, sizeof(c->request_addr));
         }
     }
+#endif
+    memset(&c->request_addr, 0, sizeof(c->request_addr));
 
     if (settings.verbose > 1) {
         if (init_state == conn_listening) {
@@ -462,6 +472,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
 
     c->noreply = false;
 
+#if 0
     event_set(&c->event, sfd, event_flags, event_handler, (void *)c);
     event_base_set(base, &c->event);
     c->ev_flags = event_flags;
@@ -470,6 +481,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         perror("event_add");
         return NULL;
     }
+#endif
 
     STATS_LOCK();
     stats.curr_conns++;
@@ -560,7 +572,7 @@ static void conn_close(conn *c) {
     assert(c != NULL);
 
     /* delete the event, the socket and the conn */
-    event_del(&c->event);
+    //event_del(&c->event);
 
     if (settings.verbose > 1)
         fprintf(stderr, "<%d connection closed.\n", c->sfd);
@@ -568,7 +580,10 @@ static void conn_close(conn *c) {
     conn_cleanup(c);
 
     MEMCACHED_CONN_RELEASE(c->sfd);
+#if 0
     close(c->sfd);
+#endif
+    ixev_close(&c->ctx);
     conn_set_state(c, conn_closed);
 
     pthread_mutex_lock(&conn_lock);
@@ -3823,7 +3838,7 @@ static enum try_read_result try_read_udp(conn *c) {
  */
 static enum try_read_result try_read_network(conn *c) {
     enum try_read_result gotdata = READ_NO_DATA_RECEIVED;
-    int res;
+    ssize_t res;
     int num_allocs = 0;
     assert(c != NULL);
 
@@ -3857,7 +3872,7 @@ static enum try_read_result try_read_network(conn *c) {
         }
 
         int avail = c->rsize - c->rbytes;
-        res = read(c->sfd, c->rbuf + c->rbytes, avail);
+        res = ixev_recv(&c->ctx, c->rbuf + c->rbytes, avail);
         if (res > 0) {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.bytes_read += res;
@@ -3873,8 +3888,8 @@ static enum try_read_result try_read_network(conn *c) {
         if (res == 0) {
             return READ_ERROR;
         }
-        if (res == -1) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        if (res < 0) {
+            if (res == -EAGAIN) {
                 break;
             }
             return READ_ERROR;
@@ -3932,6 +3947,33 @@ void do_accept_new_conns(const bool do_accept) {
     }
 }
 
+static ssize_t
+ixev_sendmsg(struct ixev_ctx *ctx, const struct msghdr *msg, int flags)
+{
+	ssize_t sent = 0;
+	int i;
+
+	for (i = 0; i < msg->msg_iovlen; i++) {
+		struct iovec *iov = &msg->msg_iov[i];
+		ssize_t ret = ixev_send(ctx, iov->iov_base, iov->iov_len);
+
+		if (ret < 0) {
+			if (ret == -EAGAIN)
+				break;
+			return ret;
+		}
+
+		sent += ret;
+		if (ret < iov->iov_len)
+			break;
+	}
+
+	if (!sent)
+		return -EAGAIN;
+
+	return sent;
+}
+
 /*
  * Transmit the next chunk of data from our list of msgbuf structures.
  *
@@ -3953,7 +3995,7 @@ static enum transmit_result transmit(conn *c) {
         ssize_t res;
         struct msghdr *m = &c->msglist[c->msgcurr];
 
-        res = sendmsg(c->sfd, m, 0);
+        res = ixev_sendmsg(&c->ctx, m, 0);
         if (res > 0) {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.bytes_written += res;
@@ -3975,13 +4017,16 @@ static enum transmit_result transmit(conn *c) {
             }
             return TRANSMIT_INCOMPLETE;
         }
-        if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        if (res <= 0 && (res == -EAGAIN)) {
+            ixev_set_handler(&c->ctx, IXEVOUT, &mc_handler);
+#if 0
             if (!update_event(c, EV_WRITE | EV_PERSIST)) {
                 if (settings.verbose > 0)
                     fprintf(stderr, "Couldn't update event\n");
                 conn_set_state(c, conn_closing);
                 return TRANSMIT_HARD_ERROR;
             }
+#endif
             return TRANSMIT_SOFT_ERROR;
         }
         /* if res == 0 or res == -1 and error is not EAGAIN or EWOULDBLOCK,
@@ -4074,23 +4119,28 @@ static void drive_machine(conn *c) {
             break;
 
         case conn_waiting:
+#if 0
             if (!update_event(c, EV_READ | EV_PERSIST)) {
                 if (settings.verbose > 0)
                     fprintf(stderr, "Couldn't update event\n");
                 conn_set_state(c, conn_closing);
                 break;
             }
+#endif
 
             conn_set_state(c, conn_read);
-            stop = true;
+            //stop = true; /* FIXME: libix should still trigger the handler */
             break;
 
         case conn_read:
+            ixev_set_handler(&c->ctx, IXEVIN, &mc_handler);
+
             res = IS_UDP(c->transport) ? try_read_udp(c) : try_read_network(c);
 
             switch (res) {
             case READ_NO_DATA_RECEIVED:
                 conn_set_state(c, conn_waiting);
+                stop = true;
                 break;
             case READ_DATA_RECEIVED:
                 conn_set_state(c, conn_parse_cmd);
@@ -4116,6 +4166,8 @@ static void drive_machine(conn *c) {
             /* Only process nreqs at a time to avoid starving other
                connections */
 
+            reset_cmd_handler(c);
+#if 0
             --nreqs;
             if (nreqs >= 0) {
                 reset_cmd_handler(c);
@@ -4139,9 +4191,12 @@ static void drive_machine(conn *c) {
                 }
                 stop = true;
             }
+#endif
             break;
 
         case conn_nread:
+            ixev_set_handler(&c->ctx, IXEVIN, &mc_handler);
+
             if (c->rlbytes == 0) {
                 complete_nread(c);
                 break;
@@ -4172,7 +4227,7 @@ static void drive_machine(conn *c) {
             }
 
             /*  now try reading from the socket */
-            res = read(c->sfd, c->ritem, c->rlbytes);
+            res = ixev_recv(&c->ctx, c->ritem, c->rlbytes);
             if (res > 0) {
                 pthread_mutex_lock(&c->thread->stats.mutex);
                 c->thread->stats.bytes_read += res;
@@ -4188,13 +4243,16 @@ static void drive_machine(conn *c) {
                 conn_set_state(c, conn_closing);
                 break;
             }
-            if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            if (res < 0 && (res == -EAGAIN)) {
+                ixev_set_handler(&c->ctx, IXEVIN, &mc_handler);
+#if 0
                 if (!update_event(c, EV_READ | EV_PERSIST)) {
                     if (settings.verbose > 0)
                         fprintf(stderr, "Couldn't update event\n");
                     conn_set_state(c, conn_closing);
                     break;
                 }
+#endif
                 stop = true;
                 break;
             }
@@ -4211,6 +4269,8 @@ static void drive_machine(conn *c) {
             break;
 
         case conn_swallow:
+            ixev_set_handler(&c->ctx, IXEVIN, &mc_handler);
+
             /* we are reading sbytes and throwing them away */
             if (c->sbytes == 0) {
                 conn_set_state(c, conn_new_cmd);
@@ -4227,7 +4287,7 @@ static void drive_machine(conn *c) {
             }
 
             /*  now try reading from the socket */
-            res = read(c->sfd, c->rbuf, c->rsize > c->sbytes ? c->sbytes : c->rsize);
+            res = ixev_recv(&c->ctx, c->rbuf, c->rsize > c->sbytes ? c->sbytes : c->rsize);
             if (res > 0) {
                 pthread_mutex_lock(&c->thread->stats.mutex);
                 c->thread->stats.bytes_read += res;
@@ -4239,13 +4299,16 @@ static void drive_machine(conn *c) {
                 conn_set_state(c, conn_closing);
                 break;
             }
-            if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            if (res < 0 && (res == -EAGAIN)) {
+                ixev_set_handler(&c->ctx, IXEVIN, &mc_handler);
+#if 0
                 if (!update_event(c, EV_READ | EV_PERSIST)) {
                     if (settings.verbose > 0)
                         fprintf(stderr, "Couldn't update event\n");
                     conn_set_state(c, conn_closing);
                     break;
                 }
+#endif
                 stop = true;
                 break;
             }
@@ -4682,7 +4745,7 @@ static int server_socket_unix(const char *path, int access_mask) {
  * rather than absolute UNIX timestamps, a space savings on systems where
  * sizeof(time_t) > sizeof(unsigned int).
  */
-volatile rel_time_t current_time;
+volatile rel_time_t current_time = 10;
 static struct event clockevent;
 
 /* libevent uses a monotonic clock when available for event scheduling. Aside
@@ -5010,6 +5073,47 @@ static bool sanitycheck(void) {
     }
 
     return true;
+}
+
+static void mc_handler(struct ixev_ctx *ctx, unsigned int reason)
+{
+	struct conn *c = container_of(ctx, struct conn, ctx);
+
+	drive_machine(c);
+}
+
+static struct ixev_ctx *mc_accept(struct ip_tuple *id)
+{
+	struct conn *c;
+
+	c = conn_new(0, conn_new_cmd, 0, DATA_BUFFER_SIZE,
+		     tcp_transport, NULL);
+	if (!c)
+		return NULL;
+
+	c->thread = local_thread;
+	ixev_ctx_init(&c->ctx);
+	ixev_set_handler(&c->ctx, IXEVIN, &mc_handler);
+
+	return &c->ctx;
+}
+
+static void mc_release(struct ixev_ctx *ctx)
+{
+	struct conn *c = container_of(ctx, struct conn, ctx);
+	conn_free(c);
+}
+
+struct ixev_conn_ops memcached_ops = {
+    .accept	= &mc_accept,
+    .release    = &mc_release,
+};
+
+void mc_event_loop(void)
+{
+	while (1) {
+		ixev_wait();
+	}
 }
 
 int main (int argc, char **argv) {
@@ -5531,6 +5635,14 @@ int main (int argc, char **argv) {
         perror("failed to ignore SIGPIPE; sigaction");
         exit(EX_OSERR);
     }
+
+    if (ixev_init(&memcached_ops)) {
+        perror("ixev failed to init\n");
+        exit(EXIT_FAILURE);
+    }
+
+    settings.num_threads = sys_nrcpus();
+    printf("spawning %d event cores\n", settings.num_threads);
     /* start up worker threads if MT mode */
     thread_init(settings.num_threads, main_base);
 
@@ -5545,6 +5657,9 @@ int main (int argc, char **argv) {
 
     /* Run regardless of initializing it later */
     init_lru_crawler();
+
+    mc_event_loop();
+    /* doesn't return */
 
     /* initialise clock event */
     clock_handler(0, 0, 0);

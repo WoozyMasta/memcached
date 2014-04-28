@@ -9,6 +9,10 @@
 #include "config.h"
 #endif
 
+#include <ix/stddef.h>
+
+#include "ixev.h"
+
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -402,6 +406,7 @@ typedef struct {
  */
 typedef struct conn conn;
 struct conn {
+    struct ixev_ctx ctx;
     int    sfd;
     sasl_conn_t *sasl_conn;
     bool authenticated;
@@ -601,10 +606,5 @@ extern void drop_privileges(void);
 #define drop_privileges()
 #endif
 
-/* If supported, give compiler hints for branch prediction. */
-#if !defined(__GNUC__) || (__GNUC__ == 2 && __GNUC_MINOR__ < 96)
-#define __builtin_expect(x, expected_value) (x)
-#endif
-
-#define likely(x)       __builtin_expect((x),1)
-#define unlikely(x)     __builtin_expect((x),0)
+extern void mc_event_loop(void);
+extern __thread LIBEVENT_THREAD *local_thread;

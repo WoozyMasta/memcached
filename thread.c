@@ -70,6 +70,7 @@ static LIBEVENT_DISPATCHER_THREAD dispatcher_thread;
  * can use to signal that they've put a new connection on its queue.
  */
 static LIBEVENT_THREAD *threads;
+__thread LIBEVENT_THREAD *local_thread;
 
 /*
  * Number of worker threads that have finished setting themselves up.
@@ -327,6 +328,7 @@ void accept_new_conns(const bool do_accept) {
  * Set up a thread's information.
  */
 static void setup_thread(LIBEVENT_THREAD *me) {
+#if 0
     me->base = event_init();
     if (! me->base) {
         fprintf(stderr, "Can't allocate event base\n");
@@ -349,6 +351,7 @@ static void setup_thread(LIBEVENT_THREAD *me) {
         exit(EXIT_FAILURE);
     }
     cq_init(me->new_conn_queue);
+#endif
 
     if (pthread_mutex_init(&me->stats.mutex, NULL) != 0) {
         perror("Failed to initialize mutex");
@@ -373,6 +376,9 @@ static void *worker_libevent(void *arg) {
      * all threads have finished initializing.
      */
 
+    local_thread = me;
+    ixev_init_thread();
+
     /* set an indexable thread-specific memory item for the lock type.
      * this could be unnecessary if we pass the conn *c struct through
      * all item_lock calls...
@@ -382,7 +388,10 @@ static void *worker_libevent(void *arg) {
 
     register_thread_initialized();
 
-    event_base_loop(me->base, 0);
+    printf("event loop\n");
+    mc_event_loop();
+    printf("done\n");
+    //event_base_loop(me->base, 0);
     return NULL;
 }
 
@@ -839,14 +848,21 @@ void thread_init(int nthreads, struct event_base *main_base) {
         stats.reserved_fds += 5;
     }
 
+    local_thread = &threads[0];
+    ixev_init_thread();
+    local_thread->item_lock_type = ITEM_LOCK_GRANULAR;
+    pthread_setspecific(item_lock_type_key, &local_thread->item_lock_type);
+
+    sys_spawnmode(true);
     /* Create threads after we've done all the libevent setup. */
-    for (i = 0; i < nthreads; i++) {
+    for (i = 1; i < nthreads; i++) {
         create_worker(worker_libevent, &threads[i]);
     }
+    sys_spawnmode(false);
 
     /* Wait for all the threads to set themselves up before returning. */
     pthread_mutex_lock(&init_lock);
-    wait_for_thread_registration(nthreads);
+    wait_for_thread_registration(nthreads - 1);
     pthread_mutex_unlock(&init_lock);
 }
 

@@ -147,6 +147,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
             || (search->time <= oldest_live && oldest_live <= current_time)) {
             itemstats[id].reclaimed++;
             if ((search->it_flags & ITEM_FETCHED) == 0) {
+	        printf("REMOVETHIS exptime %ld current_time %ld\n", search->exptime, current_time);
                 itemstats[id].expired_unfetched++;
             }
             it = search;
