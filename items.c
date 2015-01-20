@@ -360,6 +360,7 @@ void do_item_remove(item *it) {
 }
 
 void do_item_update(item *it) {
+    return;
     MEMCACHED_ITEM_UPDATE(ITEM_key(it), it->nkey, it->nbytes);
     if (it->time < current_time - ITEM_UPDATE_INTERVAL) {
         assert((it->it_flags & ITEM_SLABBED) == 0);
