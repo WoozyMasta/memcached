@@ -4664,7 +4664,9 @@ static void clock_handler(const int fd, const short which, void *arg) {
 
     if (initialized) {
         /* only delete the event if it's actually there. */
+#if 0
         evtimer_del(&clockevent);
+#endif
     } else {
         initialized = true;
         /* process_started is initialized to time() - 2. We initialize to 1 so
@@ -4678,9 +4680,11 @@ static void clock_handler(const int fd, const short which, void *arg) {
 #endif
     }
 
+#if 0
     evtimer_set(&clockevent, clock_handler, 0);
     event_base_set(main_base, &clockevent);
     evtimer_add(&clockevent, &t);
+#endif
 
 #if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
     if (monotonic) {
@@ -4981,6 +4985,7 @@ static void mc_handler(struct ixev_ctx *ctx, unsigned int reason)
 {
 	struct conn *c = container_of(ctx, struct conn, ctx);
 
+	clock_handler(0, 0, 0);
 	drive_machine(c);
 }
 
