@@ -92,6 +92,18 @@ AS_IF([test "x$enable_sasl_pwdb" = "xyes"],
       [enable_sasl=yes ])
 
 
+AC_ARG_WITH(ix,
+	[  --with-ix=PREFIX	Specify location of IX],
+	[IX="$withval"], [IX=no])
+if test "$IX" != no; then
+	if test "$IX" != yes; then
+		CFLAGS="$CFLAGS -I$IX/ix/inc -I$IX/libix"
+	fi
+	AC_CHECK_HEADERS([ixev.h], [], AC_MSG_ERROR([ixev.h not found]))
+else
+	AC_MSG_ERROR([provide --with-ix=PREFIX])
+fi
+AC_SUBST(IX)
 
 dnl **********************************************************************
 dnl DETECT_SASL_CB_GETCONF
@@ -295,7 +307,7 @@ AC_CACHE_CHECK([for libevent directory], ac_cv_libevent_dir, [
 ])
   fi
 ])
-LIBS="-levent ../../libix/libix.a $LIBS"
+LIBS="-levent $LIBS"
 if test $ac_cv_libevent_dir != "(system)"; then
   if test -d "$ac_cv_libevent_dir/lib" ; then
     LDFLAGS="-L$ac_cv_libevent_dir/lib $LDFLAGS"
@@ -572,7 +584,7 @@ then
 elif test "$GCC" = "yes"
 then
   GCC_VERSION=`$CC -dumpversion`
-  CFLAGS="$CFLAGS -Wall -I../../ix/inc -I../../libix -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls"
+  CFLAGS="$CFLAGS -Wall -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls"
   case $GCC_VERSION in
     4.4.*)
     CFLAGS="$CFLAGS -fno-strict-aliasing"

@@ -56,6 +56,11 @@ memcached_debug_DEPENDENCIES += memcached_debug_dtrace.o
 CLEANFILES += memcached_dtrace.o memcached_debug_dtrace.o
 endif
 
+memcached_LDADD += $(IX)/libix/libix.a
+memcached_DEPENDENCIES += $(IX)/libix/libix.a
+memcached_debug_LDADD += $(IX)/libix/libix.a
+memcached_debug_DEPENDENCIES += $(IX)/libix/libix.a
+
 memcached_dtrace.h: memcached_dtrace.d
 	${DTRACE} -h -s memcached_dtrace.d
 	sed -e 's,void \*,const void \*,g' memcached_dtrace.h | \
