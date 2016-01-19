@@ -97,7 +97,7 @@ AC_ARG_WITH(ix,
 	[IX="$withval"], [IX=no])
 if test "$IX" != no; then
 	if test "$IX" != yes; then
-		CFLAGS="$CFLAGS -I$IX/ix/inc -I$IX/libix"
+		CFLAGS="$CFLAGS -I$IX/inc -I$IX/libix"
 	fi
 	AC_CHECK_HEADERS([ixev.h], [], AC_MSG_ERROR([ixev.h not found]))
 else
