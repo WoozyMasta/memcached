@@ -48,6 +48,8 @@
 #include <sysexits.h>
 #include <stddef.h>
 
+#include <ixev_timer.h>
+
 /* FreeBSD 4.x doesn't have IOV_MAX exposed. */
 #ifndef IOV_MAX
 #if defined(__FreeBSD__) || defined(__APPLE__)
@@ -4648,13 +4650,13 @@ static int server_socket_unix(const char *path, int access_mask) {
  * sizeof(time_t) > sizeof(unsigned int).
  */
 volatile rel_time_t current_time = 10;
-static struct event clockevent;
+static struct ixev_timer clockevent;
 
 /* libevent uses a monotonic clock when available for event scheduling. Aside
  * from jitter, simply ticking our internal timer here is accurate enough.
  * Note that users who are setting explicit dates for expiration times *must*
  * ensure their clocks are correct before starting memcached. */
-static void clock_handler(const int fd, const short which, void *arg) {
+static void clock_handler(void *arg) {
     struct timeval t = {.tv_sec = 1, .tv_usec = 0};
     static bool initialized = false;
 #if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
@@ -4662,12 +4664,7 @@ static void clock_handler(const int fd, const short which, void *arg) {
     static time_t monotonic_start;
 #endif
 
-    if (initialized) {
-        /* only delete the event if it's actually there. */
-#if 0
-        evtimer_del(&clockevent);
-#endif
-    } else {
+    if (!initialized) {
         initialized = true;
         /* process_started is initialized to time() - 2. We initialize to 1 so
          * flush_all won't underflow during tests. */
@@ -4678,13 +4675,10 @@ static void clock_handler(const int fd, const short which, void *arg) {
             monotonic_start = ts.tv_sec - ITEM_UPDATE_INTERVAL - 2;
         }
 #endif
+        ixev_timer_init(&clockevent, clock_handler, 0);
     }
 
-#if 0
-    evtimer_set(&clockevent, clock_handler, 0);
-    event_base_set(main_base, &clockevent);
-    evtimer_add(&clockevent, &t);
-#endif
+    ixev_timer_add(&clockevent, t);
 
 #if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
     if (monotonic) {
@@ -4985,7 +4979,6 @@ static void mc_handler(struct ixev_ctx *ctx, unsigned int reason)
 {
 	struct conn *c = container_of(ctx, struct conn, ctx);
 
-	clock_handler(0, 0, 0);
 	drive_machine(c);
 }
 
@@ -5570,11 +5563,11 @@ int main (int argc, char **argv) {
     /* Run regardless of initializing it later */
     init_lru_crawler();
 
+    /* initialise clock event */
+    clock_handler(0);
+
     mc_event_loop();
     /* doesn't return */
-
-    /* initialise clock event */
-    clock_handler(0, 0, 0);
 
     /* create unix mode sockets after dropping privileges */
     if (settings.socketpath != NULL) {
