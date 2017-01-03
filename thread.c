@@ -80,7 +80,9 @@ static pthread_mutex_t init_lock;
 static pthread_cond_t init_cond;
 
 
+#if 0
 static void thread_libevent_process(int fd, short which, void *arg);
+#endif
 
 unsigned short refcount_incr(unsigned short *refcount) {
 #ifdef HAVE_GCC_ATOMICS
@@ -200,6 +202,7 @@ void switch_item_lock_type(enum item_lock_types type) {
     pthread_mutex_unlock(&init_lock);
 }
 
+#if 0
 /*
  * Initializes a connection queue.
  */
@@ -228,6 +231,7 @@ static CQ_ITEM *cq_pop(CQ *cq) {
 
     return item;
 }
+#endif
 
 /*
  * Adds an item to a connection queue.
@@ -286,6 +290,7 @@ static CQ_ITEM *cqi_new(void) {
 }
 
 
+#if 0
 /*
  * Frees a connection queue item (adds it to the freelist.)
  */
@@ -295,6 +300,7 @@ static void cqi_free(CQ_ITEM *item) {
     cqi_freelist = item;
     pthread_mutex_unlock(&cqi_freelist_lock);
 }
+#endif
 
 
 /*
@@ -396,6 +402,7 @@ static void *worker_libevent(void *arg) {
 }
 
 
+#if 0
 /*
  * Processes an incoming "handle a new connection" item. This is called when
  * input arrives on the libevent wakeup pipe.
@@ -444,6 +451,7 @@ static void thread_libevent_process(int fd, short which, void *arg) {
         break;
     }
 }
+#endif
 
 /* Which thread we assigned a connection to most recently. */
 static int last_thread = -1;

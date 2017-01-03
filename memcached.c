@@ -3962,7 +3962,9 @@ static void drive_machine(conn *c) {
     int sfd;
     socklen_t addrlen;
     struct sockaddr_storage addr;
+#if 0
     int nreqs = settings.reqs_per_event;
+#endif
     int res;
     const char *str;
 #ifdef HAVE_ACCEPT4
@@ -5022,9 +5024,13 @@ int main (int argc, char **argv) {
     bool do_daemonize = false;
     bool preallocate = false;
     int maxcore = 0;
+#if 0
     char *username = NULL;
+#endif
     char *pid_file = NULL;
+#if 0
     struct passwd *pw;
+#endif
     struct rlimit rlim;
     char *buf;
     char unit = '\0';
@@ -5183,9 +5189,11 @@ int main (int argc, char **argv) {
                 return 1;
             }
             break;
+#if 0
         case 'u':
             username = optarg;
             break;
+#endif
         case 'P':
             pid_file = optarg;
             break;
